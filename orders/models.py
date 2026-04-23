@@ -14,6 +14,12 @@ class Order(models.Model):
         ('cancelled', 'Cancelled'),
     ]
 
+    PAYMENT_STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('paid', 'Paid'),
+        ('failed', 'Failed'),
+    ]
+
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='orders')
     order_number = models.CharField(max_length=50, unique=True, db_index=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
@@ -21,6 +27,27 @@ class Order(models.Model):
     total_price = models.DecimalField(max_digits=10, decimal_places=2)
     estimated_delivery = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    # Payment fields
+    payment_status = models.CharField(
+        max_length=20,
+        choices=PAYMENT_STATUS_CHOICES,
+        default='pending',
+        db_index=True,
+    )
+    stripe_session_id = models.CharField(max_length=255, blank=True, db_index=True)
+
+    # Shipping address snapshot
+    shipping_first_name = models.CharField(max_length=100, blank=True)
+    shipping_last_name = models.CharField(max_length=100, blank=True)
+    shipping_email = models.EmailField(blank=True)
+    shipping_phone = models.CharField(max_length=30, blank=True)
+    shipping_address = models.TextField(blank=True)
+    shipping_city = models.CharField(max_length=100, blank=True)
+    shipping_state = models.CharField(max_length=100, blank=True)
+    shipping_zip = models.CharField(max_length=20, blank=True)
+    shipping_country = models.CharField(max_length=100, blank=True)
+    order_notes = models.TextField(blank=True)
 
     class Meta:
         ordering = ['-created_at']
@@ -63,3 +90,4 @@ class TrackingEvent(models.Model):
 
     def __str__(self):
         return f"{self.order.order_number} - {self.label}"
+
