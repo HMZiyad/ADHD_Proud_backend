@@ -10,3 +10,4 @@ drf-yasg==1.21.7
 django-filter==24.2
 Pillow==10.3.0
 stripe==8.8.0
+google-generativeai==0.8.3

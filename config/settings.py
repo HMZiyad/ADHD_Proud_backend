@@ -31,6 +31,7 @@ INSTALLED_APPS = [
     'shop',
     'profiles',
     'orders',
+    'admin_api',
     'django_filters',
 ]
 
