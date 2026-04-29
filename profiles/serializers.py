@@ -102,6 +102,34 @@ class CartItemSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Product not found.")
         return value
 
+    def validate(self, attrs):
+        product_id = attrs.get('product_id')
+        size = attrs.get('size', '')
+        quantity = attrs.get('quantity', 1)
+
+        from shop.models import Product, ProductSize
+        try:
+            product = Product.objects.get(id=product_id)
+        except Product.DoesNotExist:
+            raise serializers.ValidationError("Product not found.")
+
+        # Check per-size stock if size is provided
+        if size:
+            try:
+                size_obj = ProductSize.objects.get(product=product, size=size)
+                if size_obj.stock < quantity:
+                    raise serializers.ValidationError(f"Only {size_obj.stock} units available for size {size}.")
+            except ProductSize.DoesNotExist:
+                # Fallback to global stock if size record doesn't exist but was requested
+                if product.stock_quantity < quantity:
+                    raise serializers.ValidationError("This product is currently out of stock.")
+        else:
+            # Global stock check
+            if product.stock_quantity < quantity:
+                raise serializers.ValidationError("This product is currently out of stock.")
+
+        return attrs
+
     def create(self, validated_data):
         from .models import Cart
         cart, _ = Cart.objects.get_or_create(user=self.context['request'].user)

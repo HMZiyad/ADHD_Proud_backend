@@ -20,13 +20,21 @@ class Product(models.Model):
     category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, related_name='products')
     price = models.DecimalField(max_digits=10, decimal_places=2)
     old_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
-    short_description = models.TextField(blank=True, help_text="Excerpt below title")
-    description = models.TextField(help_text="Full markdown/html for Product Details tab")
+    short_description = models.TextField(blank=True, null=True, help_text="Excerpt below title")
+    description = models.TextField(blank=True, null=True, help_text="Full markdown/html for Product Details tab")
     stock_quantity = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        ordering = ['-created_at']
+
     def __str__(self):
         return self.name
+
+    def update_total_stock(self):
+        from django.db.models import Sum
+        self.stock_quantity = self.sizes.aggregate(Sum('stock'))['stock__sum'] or 0
+        self.save()
 
 class ProductImage(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='images')
@@ -39,9 +47,14 @@ class ProductImage(models.Model):
 class ProductSize(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='sizes')
     size = models.CharField(max_length=10) # xs, s, md, xl
+    stock = models.PositiveIntegerField(default=0)
 
     def __str__(self):
         return f"{self.product.name} - {self.size}"
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        self.product.update_total_stock()
 
 class ProductColor(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='colors')

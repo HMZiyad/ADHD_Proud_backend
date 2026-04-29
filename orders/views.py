@@ -265,6 +265,24 @@ class StripeWebhookView(APIView):
             order.stripe_session_id = session.get('id', order.stripe_session_id)
             order.save(update_fields=['payment_status', 'status', 'stripe_session_id'])
 
+            # ── 4. Deduct Inventory Stock ──────────────────────────────────
+            from shop.models import ProductSize
+            for item in order.items.all():
+                if item.product:
+                    if item.size:
+                        try:
+                            size_obj = ProductSize.objects.get(product=item.product, size=item.size)
+                            size_obj.stock = max(0, size_obj.stock - item.quantity)
+                            size_obj.save() # This also triggers product.update_total_stock() via model override
+                        except ProductSize.DoesNotExist:
+                            # Fallback to global stock
+                            item.product.stock_quantity = max(0, item.product.stock_quantity - item.quantity)
+                            item.product.save()
+                    else:
+                        # Global stock deduction
+                        item.product.stock_quantity = max(0, item.product.stock_quantity - item.quantity)
+                        item.product.save()
+
         # ── Handle checkout.session.expired ───────────────────────────────
         elif event_type == 'checkout.session.expired':
             try:

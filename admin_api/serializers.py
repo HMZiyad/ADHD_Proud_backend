@@ -116,25 +116,32 @@ class AdminProductSerializer(serializers.ModelSerializer):
     category = serializers.SerializerMethodField()
     inventory = serializers.IntegerField(source='stock_quantity', read_only=True)
     image = serializers.SerializerMethodField()
+    images = serializers.SerializerMethodField()
+    color_list = serializers.SerializerMethodField()
     variants = serializers.SerializerMethodField()
 
     # Write-only inputs
-    category_slug = serializers.SlugField(write_only=True, required=False)
+    category_slug = serializers.CharField(write_only=True, required=False, allow_blank=True)
     stock = serializers.IntegerField(write_only=True, required=False, default=0)
     sizes = serializers.CharField(
         write_only=True, required=False, allow_blank=True, default='',
         help_text="Comma-separated sizes: S,M,L,XL"
     )
+    colors = serializers.CharField(
+        write_only=True, required=False, allow_blank=True, default='',
+        help_text="Comma-separated hex colors: #000000,#FFFFFF"
+    )
+    variants_json = serializers.CharField(write_only=True, required=False, allow_blank=True)
     image_file = serializers.ImageField(
-        write_only=True, required=False, source='image', allow_null=True
+        write_only=True, required=False, allow_null=True
     )
 
     class Meta:
         model = Product
         fields = [
-            'id', 'name', 'category', 'price', 'inventory', 'image', 'variants',
+            'id', 'name', 'category', 'short_description', 'description', 'price', 'inventory', 'image', 'images', 'color_list', 'variants',
             # write-only
-            'category_slug', 'stock', 'sizes', 'image_file',
+            'category_slug', 'stock', 'sizes', 'colors', 'variants_json', 'image_file',
         ]
 
     def get_category(self, obj):
@@ -148,22 +155,44 @@ class AdminProductSerializer(serializers.ModelSerializer):
             return request.build_absolute_uri(url) if request else url
         return None
 
+    def get_images(self, obj):
+        request = self.context.get('request')
+        result = []
+        for img in obj.images.all():
+            url = img.image.url
+            result.append({
+                'id': img.id,
+                'image': request.build_absolute_uri(url) if request else url,
+                'is_primary': img.is_primary
+            })
+        return result
+
+    def get_color_list(self, obj):
+        return [{'id': c.id, 'color_hex': c.color_hex} for c in obj.colors.all()]
+
     def get_variants(self, obj):
-        return [{'size': s.size, 'stock': 0} for s in obj.sizes.all()]
+        return [{'size': s.size, 'stock': s.stock} for s in obj.sizes.all()]
 
     def create(self, validated_data):
         category_slug = validated_data.pop('category_slug', None)
+        variants_json = validated_data.pop('variants_json', None)
         stock = validated_data.pop('stock', 0)
         sizes_str = validated_data.pop('sizes', '')
-        image_file = validated_data.pop('image', None)
+        colors_str = validated_data.pop('colors', '')
+        image_file = validated_data.pop('image_file', None)
 
-        # Resolve category
+        # Resolve category (auto-create if missing)
         category = None
         if category_slug:
-            try:
-                category = ShopCategory.objects.get(slug=category_slug)
-            except ShopCategory.DoesNotExist:
-                pass
+            # Slugify the input to ensure it's a valid slug
+            from django.utils.text import slugify
+            cat_slug = slugify(category_slug)
+            if cat_slug:
+                category_name = category_slug.replace('-', ' ').replace('_', ' ').title()
+                category, _ = ShopCategory.objects.get_or_create(
+                    slug=cat_slug,
+                    defaults={'name': category_name}
+                )
 
         # Auto-generate slug from name
         from django.utils.text import slugify
@@ -180,45 +209,85 @@ class AdminProductSerializer(serializers.ModelSerializer):
             category=category,
             slug=slug,
             stock_quantity=stock,
-            description=validated_data.pop('description', ''),
             **validated_data,
         )
 
-        # Create primary image
-        if image_file:
-            ProductImage.objects.create(product=product, image=image_file, is_primary=True)
+        # Create images
+        images = self.context['request'].FILES.getlist('image_file')
+        for i, img in enumerate(images):
+            ProductImage.objects.create(product=product, image=img, is_primary=(i == 0))
 
         # Create size variants
-        if sizes_str:
+        if variants_json:
+            import json
+            try:
+                v_data = json.loads(variants_json)
+                for item in v_data:
+                    ProductSize.objects.create(product=product, size=item['size'], stock=item.get('stock', 0))
+            except:
+                pass
+        elif sizes_str:
             for size in [s.strip() for s in sizes_str.split(',') if s.strip()]:
                 ProductSize.objects.create(product=product, size=size)
+
+        # Create color variants
+        if colors_str:
+            from shop.models import ProductColor
+            for color in [c.strip() for c in colors_str.split(',') if c.strip()]:
+                ProductColor.objects.create(product=product, color_hex=color)
 
         return product
 
     def update(self, instance, validated_data):
         category_slug = validated_data.pop('category_slug', None)
+        variants_json = validated_data.pop('variants_json', None)
         stock = validated_data.pop('stock', None)
         sizes_str = validated_data.pop('sizes', None)
-        image_file = validated_data.pop('image', None)
+        colors_str = validated_data.pop('colors', None)
+        image_file = validated_data.pop('image_file', None)
 
         if category_slug:
-            try:
-                instance.category = ShopCategory.objects.get(slug=category_slug)
-            except ShopCategory.DoesNotExist:
-                pass
+            from django.utils.text import slugify
+            cat_slug = slugify(category_slug)
+            if cat_slug:
+                category_name = category_slug.replace('-', ' ').replace('_', ' ').title()
+                category, _ = ShopCategory.objects.get_or_create(
+                    slug=cat_slug,
+                    defaults={'name': category_name}
+                )
+                instance.category = category
 
         if stock is not None:
             instance.stock_quantity = stock
 
-        if image_file:
-            # Replace the primary image
-            instance.images.filter(is_primary=True).delete()
-            ProductImage.objects.create(product=instance, image=image_file, is_primary=True)
+        images = self.context['request'].FILES.getlist('image_file')
+        if images:
+            # Replace all images for now if new ones are uploaded
+            # In a more advanced version, we might want to append or delete specific ones
+            instance.images.all().delete()
+            for i, img in enumerate(images):
+                ProductImage.objects.create(product=instance, image=img, is_primary=(i == 0))
 
-        if sizes_str is not None:
+        # Update sizes
+        if variants_json:
+            import json
+            try:
+                v_data = json.loads(variants_json)
+                instance.sizes.all().delete()
+                for item in v_data:
+                    ProductSize.objects.create(product=instance, size=item['size'], stock=item.get('stock', 0))
+            except:
+                pass
+        elif sizes_str is not None:
             instance.sizes.all().delete()
             for size in [s.strip() for s in sizes_str.split(',') if s.strip()]:
                 ProductSize.objects.create(product=instance, size=size)
+
+        if colors_str is not None:
+            from shop.models import ProductColor
+            instance.colors.all().delete()
+            for color in [c.strip() for c in colors_str.split(',') if c.strip()]:
+                ProductColor.objects.create(product=instance, color_hex=color)
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
