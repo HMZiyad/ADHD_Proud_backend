@@ -134,7 +134,27 @@ REST_FRAMEWORK = {
 }
 
 # CORS
-CORS_ALLOW_ALL_ORIGINS = True
+# CORS & Security Settings
+CORS_ALLOWED_ORIGINS = [
+    "https://admin.adhd-proud.com",
+    "https://api.adhd-proud.com",
+    "https://adhd-proud.com",
+    "http://localhost:3000",
+    "http://localhost:3001",
+]
+CORS_ALLOW_CREDENTIALS = True
+
+CSRF_TRUSTED_ORIGINS = [
+    "https://admin.adhd-proud.com",
+    "https://api.adhd-proud.com",
+    "https://adhd-proud.com",
+]
+
+# Essential for HTTPS behind a proxy (like Nginx on EC2)
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+USE_X_FORWARDED_HOST = True
+USE_X_FORWARDED_PORT = True
+
 
 # Celery
 CELERY_BROKER_URL = os.environ.get('REDIS_URL', 'redis://redis:6379/0')

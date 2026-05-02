@@ -5,7 +5,6 @@ __pycache__/
 *.so
 
 # Environments
-.env
 .venv
 env/
 venv/
@@ -28,9 +27,10 @@ media/*
 
 # IDEs
 .idea/
-.vscode/
 *.swp
 *.swo
 
 # macOS
 .DS_Store
+config.bat
+node_modules
